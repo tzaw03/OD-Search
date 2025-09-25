@@ -10,7 +10,6 @@ from mutagen.dsf import DSF
 from io import BytesIO
 
 # --- Configuration ---
-# GitHub Secrets ကနေ credentials တွေကိုဖတ်ခြင်း
 TENANT_ID = os.getenv("O365_TENANT_ID")
 CLIENT_ID = os.getenv("O365_CLIENT_ID")
 CLIENT_SECRET = os.getenv("O365_CLIENT_SECRET")
@@ -21,10 +20,9 @@ SCOPE = ["https://graph.microsoft.com/.default"]
 DB_FILE = "music_bot.db"
 SUPPORTED_EXTENSIONS = ['.flac', '.wav', '.m4a', '.dsf']
 
-# --- Database Connection ---
-conn = sqlite3.connect(DB_FILE)
-cursor = conn.cursor()
-print("Successfully connected to database.")
+# --- Global DB Connection ---
+conn = None
+cursor = None
 
 def get_access_token():
     """Microsoft Graph API အတွက် Access Token ရယူခြင်း"""
@@ -39,9 +37,7 @@ def get_access_token():
         print("Access Token acquired successfully.")
         return result['access_token']
     else:
-        print("\nFailed to acquire access token.")
-        print(f"Error: {result.get('error')}")
-        print(f"Error Description: {result.get('error_description')}")
+        print(f"\nFailed to acquire access token: {result.get('error_description')}")
         return None
 
 def get_metadata(file_content, file_name):
@@ -59,7 +55,7 @@ def get_metadata(file_content, file_name):
             tags = DSF(fileobj=file_like_object)
 
         if tags:
-            title = tags.get('title', ['Unknown Title'])[0]
+            title = tags.get('title', [os.path.splitext(file_name)[0]])[0]
             artist = tags.get('artist', ['Unknown Artist'])[0]
             album = tags.get('album', ['Unknown Album'])[0]
             return title, artist, album
@@ -68,14 +64,38 @@ def get_metadata(file_content, file_name):
     return "Unknown Title", "Unknown Artist", "Unknown Album"
 
 def scan_folder(headers, item_id, current_path):
-    """OneDrive Folder များကို Recursive Scan လုပ်ခြင်း"""
+    """OneDrive Folder များကို Recursive Scan လုပ်ပြီး songs နှင့် albums table များကို data ဖြည့်ခြင်း"""
     endpoint = f"https://graph.microsoft.com/v1.0/users/{TARGET_USER_ID}/drive/items/{item_id}/children"
-    response = requests.get(endpoint, headers=headers)
-    if response.status_code != 200:
-        print(f"Error scanning folder {item_id}: {response.text}")
+    try:
+        response = requests.get(endpoint, headers=headers)
+        response.raise_for_status() # Raise an exception for bad status codes
+    except requests.exceptions.RequestException as e:
+        print(f"Error scanning folder {item_id}: {e}")
         return
 
     items = response.json().get('value', [])
+    music_files_in_folder = [item for item in items if 'file' in item and os.path.splitext(item.get('name', ''))[1].lower() in SUPPORTED_EXTENSIONS]
+    
+    if music_files_in_folder:
+        first_song = music_files_in_folder[0]
+        download_url = first_song.get('@microsoft.graph.downloadUrl')
+        if download_url:
+            file_response = requests.get(download_url)
+            if file_response.status_code == 200:
+                _, artist, album = get_metadata(file_response.content, first_song.get('name'))
+                if album != "Unknown Album":
+                    try:
+                        cursor.execute(
+                            "INSERT INTO albums (album_name, artist_name, folder_id, folder_path) VALUES (?, ?, ?, ?)",
+                            (album, artist, item_id, current_path)
+                        )
+                        conn.commit()
+                        print(f"++ Indexed Album Folder: '{album}' by {artist}")
+                    except sqlite3.IntegrityError:
+                        pass # Folder already exists, skip.
+                    except Exception as e:
+                        print(f"Error inserting album to DB: {e}")
+
     for item in items:
         item_name = item.get('name')
         new_path = f"{current_path}/{item_name}"
@@ -84,44 +104,44 @@ def scan_folder(headers, item_id, current_path):
             print(f"Scanning subfolder: {new_path}")
             scan_folder(headers, item.get('id'), new_path)
         
-        elif 'file' in item:
-            file_extension = os.path.splitext(item_name)[1].lower()
-            if file_extension in SUPPORTED_EXTENSIONS:
-                print(f"Found music file: {new_path}")
-                
-                # Download file content
-                download_url = item.get('@microsoft.graph.downloadUrl')
-                if not download_url:
-                    print(f"  No download URL for {item_name}")
-                    continue
+        elif 'file' in item and item in music_files_in_folder:
+            print(f"Found music file: {new_path}")
+            download_url = item.get('@microsoft.graph.downloadUrl')
+            if not download_url: continue
 
-                file_response = requests.get(download_url)
-                if file_response.status_code == 200:
-                    title, artist, album = get_metadata(file_response.content, item_name)
-                    
-                    # Save to database
-                    cursor.execute(
-                        "INSERT INTO songs (file_id, file_name, title, artist, album, file_path) VALUES (?, ?, ?, ?, ?, ?)",
-                        (item.get('id'), item_name, title, artist, album, new_path)
-                    )
-                    conn.commit()
-                    print(f"  Indexed: {artist} - {album} - {title}")
-                else:
-                    print(f"  Failed to download {item_name}")
+            file_response = requests.get(download_url)
+            if file_response.status_code == 200:
+                title, artist, album = get_metadata(file_response.content, item_name)
+                cursor.execute(
+                    "INSERT INTO songs (file_id, file_name, title, artist, album, file_path) VALUES (?, ?, ?, ?, ?, ?)",
+                    (item.get('id'), item_name, title, artist, album, new_path)
+                )
+                conn.commit()
+                print(f"  -- Indexed Song: {artist} - {album} - {title}")
 
 def main():
-    token = get_access_token()
-    if not token:
-        return
+    global conn, cursor
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        print("Successfully connected to database.")
 
-    headers = {'Authorization': f'Bearer {token}'}
-    
-    print("\nStarting OneDrive scan from root folder...")
-    # "root" folder ကနေစပြီး scan လုပ်ပါမယ်။
-    scan_folder(headers, 'root', '')
-    
-    print("\nIndexing complete.")
-    conn.close()
+        token = get_access_token()
+        if not token:
+            return
+
+        headers = {'Authorization': f'Bearer {token}'}
+        
+        print("\nStarting OneDrive scan from root folder...")
+        scan_folder(headers, 'root', '')
+        
+        print("\nIndexing complete.")
+    except Exception as e:
+        print(f"An error occurred in main: {e}")
+    finally:
+        if conn:
+            conn.close()
+            print("Database connection closed.")
 
 if __name__ == "__main__":
     main()
