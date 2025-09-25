@@ -1,0 +1,49 @@
+name: Run OneDrive Music Indexer
+
+on:
+  # Workflow ကို GitHub website ကနေ ကိုယ်တိုင် run ချင်တဲ့အခါ သုံးရန်
+  workflow_dispatch:
+  
+  # Main branch ကို push တင်လိုက်တိုင်း အလိုအလျောက် run စေချင်လျှင်
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-index:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Step 1: Repository code တွေကို checkout လုပ်ခြင်း
+    - uses: actions/checkout@v3
+
+    # Step 2: Python 3.9 ကို install လုပ်ခြင်း
+    - name: Set up Python 3.9
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    # Step 3: လိုအပ်သော library များကို install လုပ်ခြင်း
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    # Step 4: Database file နှင့် table များကို တည်ဆောက်ခြင်း
+    - name: Create Database Schema
+      run: python3 create_database.py
+
+    # Step 5: Indexing Script ကို run ခြင်း (GitHub Secrets များကိုသုံး၍)
+    - name: Run Indexer Script
+      env:
+        O365_TENANT_ID: ${{ secrets.O365_TENANT_ID }}
+        O365_CLIENT_ID: ${{ secrets.O365_CLIENT_ID }}
+        O365_CLIENT_SECRET: ${{ secrets.O365_CLIENT_SECRET }}
+        O365_USER_ID: ${{ secrets.O365_USER_ID }}
+      run: python3 run_indexer.py
+
+    # Step 6: ထွက်လာသော database file ကို Artifact အဖြစ် upload တင်ခြင်း
+    - name: Upload database artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: music-database
+        path: music_bot.db
