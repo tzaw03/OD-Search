@@ -14,3 +14,4 @@ venv
 # IDE files
 .vscode/
 .idea/
+.env
