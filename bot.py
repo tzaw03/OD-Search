@@ -3,146 +3,65 @@ import sqlite3
 import logging
 import requests
 import msal
+import uuid
+import time
 from datetime import datetime, timedelta
+from flask import Flask, request, Response, stream_with_context
 from telegram import Update, ParseMode, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler
+from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler, Dispatcher
 
 # --- Configuration ---
-# GitHub Secrets/Environment Variables
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID"))
 DB_FILE = "music_bot.db"
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-
-# OneDrive App Credentials
 TENANT_ID = os.getenv("O365_TENANT_ID")
 CLIENT_ID = os.getenv("O365_CLIENT_ID")
 CLIENT_SECRET = os.getenv("O365_CLIENT_SECRET")
 TARGET_USER_ID = os.getenv("O365_USER_ID")
 
-# Enable logging
-# ... (No changes here) ...
+# --- Initialize ---
+app = Flask(__name__)
+updater = Updater(BOT_TOKEN)
+dispatcher = updater.dispatcher
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Microsoft Graph API Helper ---
+# In-memory store for one-time download tokens
+# Format: { 'token': {'song_id': 123, 'timestamp': 167...} }
+download_tokens = {}
+
+# --- Helper Functions ---
 def get_access_token():
-    """Microsoft Graph API အတွက် Access Token ရယူခြင်း"""
-    authority = f"https://login.microsoftonline.com/{TENANT_ID}"
-    scope = ["https://graph.microsoft.com/.default"]
-    app = msal.ConfidentialClientApplication(client_id=CLIENT_ID, authority=authority, client_credential=CLIENT_SECRET)
-    result = app.acquire_token_for_client(scopes=scope)
-    if "access_token" in result:
-        return result['access_token']
-    else:
-        logger.error(f"Failed to acquire token: {result.get('error_description')}")
-        return None
-
+    # ... (Same as before) ...
+    
 def get_download_link(file_id: str):
-    """OneDrive File ID ကိုသုံးပြီး download link ရယူခြင်း"""
-    token = get_access_token()
-    if not token:
-        return None
-    
-    endpoint = f"https://graph.microsoft.com/v1.0/users/{TARGET_USER_ID}/drive/items/{file_id}"
-    headers = {'Authorization': f'Bearer {token}'}
-    response = requests.get(endpoint, headers=headers)
-    
-    if response.status_code == 200:
-        # Temporary download URL is in this key
-        return response.json().get('@microsoft.graph.downloadUrl')
-    else:
-        logger.error(f"Graph API Error getting item: {response.text}")
-        return None
+    # ... (Same as before) ...
 
-# --- Membership & Command Handlers (with updates) ---
 def is_member(user_id: int) -> bool:
-    # ... (No changes here) ...
-    # ... (Same as previous version)
-    
-def start(update: Update, context: CallbackContext) -> None:
-    # ... (No changes here) ...
-    # ... (Same as previous version)
-    
-# --- Admin Commands (No Changes) ---
+    # ... (Same as before) ...
+
+# --- Admin Commands ---
 def add_member(update: Update, context: CallbackContext) -> None:
-    # ... (No changes here) ...
-    # ... (Same as previous version)
-
-def ban_user(update: Update, context: CallbackContext) -> None:
-    # ... (No changes here) ...
-    # ... (Same as previous version)
-
-def unban_user(update: Update, context: CallbackContext) -> None:
-    # ... (No changes here) ...
-    # ... (Same as previous version)
-
-# --- Member Search Commands (UPDATED) ---
-def search_songs(criteria: str, search_term: str) -> list:
-    """Database ထဲတွင် သီချင်းရှာသော helper function"""
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    # Now we also need the file_id
-    query = f"SELECT id, file_id, artist, album, title FROM songs WHERE {criteria} LIKE ?"
-    cursor.execute(query, (f'%{search_term}%',))
-    results = cursor.fetchall()
-    conn.close()
-    return results
-
-def search_album(update: Update, context: CallbackContext) -> None:
-    # ... (Logic to check member and parse arguments is the same) ...
-    user = update.effective_user
-    if not is_member(user.id): # ...
-        return
-    if not context.args: # ...
-        return
-        
-    search_term = " ".join(context.args)
-    logger.info(f"Member {user.id} is searching for album: {search_term}")
-    results = search_songs("album", search_term)
+    # ... (Same as before) ...
     
-    if not results:
-        update.message.reply_text(f"🤔 No results found for album: *{search_term}*", parse_mode=ParseMode.MARKDOWN)
-    else:
-        keyboard = []
-        message = f"🎵 *Found {len(results)} songs for album '{search_term}':*\n\n"
-        for i, (song_id, file_id, artist, album, title) in enumerate(results, 1):
-            message += f"*{i}.* `{title}` by {artist}\n"
-            # Each button's callback_data will be "dl_{song_id}"
-            keyboard.append([InlineKeyboardButton(f"📥 Download No. {i}", callback_data=f"dl_{song_id}")])
-        
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
+def ban_user(update: Update, context: CallbackContext) -> None:
+    # ... (Same as before) ...
+    
+def unban_user(update: Update, context: CallbackContext) -> None:
+    # ... (Same as before) ...
+    
+# --- Search and Callback Handlers ---
+def search_album(update: Update, context: CallbackContext) -> None:
+    # ... (Same as before) ...
 
 def search_artist(update: Update, context: CallbackContext) -> None:
-    # ... (Logic to check member and parse arguments is the same) ...
-    user = update.effective_user
-    if not is_member(user.id): # ...
-        return
-    if not context.args: # ...
-        return
+    # ... (Same as before) ...
 
-    search_term = " ".join(context.args)
-    logger.info(f"Member {user.id} is searching for artist: {search_term}")
-    results = search_songs("artist", search_term)
-
-    if not results:
-        update.message.reply_text(f"🤔 No results found for artist: *{search_term}*", parse_mode=ParseMode.MARKDOWN)
-    else:
-        keyboard = []
-        message = f"🎤 *Found {len(results)} songs by artist '{search_term}':*\n\n"
-        for i, (song_id, file_id, artist, album, title) in enumerate(results, 1):
-            message += f"*{i}.* `{title}` from album '{album}'\n"
-            keyboard.append([InlineKeyboardButton(f"📥 Download No. {i}", callback_data=f"dl_{song_id}")])
-
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN, reply_markup=reply_markup)
-
-# --- NEW: Callback Query Handler for Buttons ---
 def button_handler(update: Update, context: CallbackContext) -> None:
     """Download button နှိပ်လိုက်တိုင်း အလုပ်လုပ်မယ့် function"""
     query = update.callback_query
-    query.answer() # Respond to the button click to remove the "loading" state
+    query.answer()
     
     user_id = query.from_user.id
     if not is_member(user_id):
@@ -153,48 +72,78 @@ def button_handler(update: Update, context: CallbackContext) -> None:
     if callback_data.startswith("dl_"):
         song_id = int(callback_data.split("_")[1])
         
-        # Get file_id from database using song_id
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("SELECT file_id, title, artist FROM songs WHERE id = ?", (song_id,))
-        result = cursor.fetchone()
-        conn.close()
+        # Generate a unique, one-time token
+        token = str(uuid.uuid4())
+        download_tokens[token] = {'song_id': song_id, 'timestamp': time.time()}
+        
+        # Send the proxied download link to the user
+        download_url = f"{WEBHOOK_URL}/download/{token}"
+        
+        query.edit_message_text(
+            text=f"✅ Your secure download link is ready!\n\n👉 [Click here to download]({download_url})\n\n_Note: This link is for one-time use only and will expire in 60 seconds._",
+            parse_mode=ParseMode.MARKDOWN
+        )
 
-        if result:
-            file_id, title, artist = result
-            query.edit_message_text(text=f"⏳ Please wait, fetching download link for *{title}*...", parse_mode=ParseMode.MARKDOWN)
-            
-            download_link = get_download_link(file_id)
-            
-            if download_link:
-                # Send a new message with the download link
-                context.bot.send_message(
-                    chat_id=query.message.chat_id,
-                    text=f"✅ Here is your download link for *{title}* by *{artist}*:\n\n{download_link}\n\n_Note: This link is temporary and will expire._",
-                    parse_mode=ParseMode.MARKDOWN
-                )
-            else:
-                context.bot.send_message(chat_id=query.message.chat_id, text="❌ Sorry, failed to generate a download link.")
-        else:
-            query.edit_message_text(text="🤔 Song not found in the database.")
+# --- Flask Web Routes ---
+@app.route(f'/{BOT_TOKEN}', methods=['POST'])
+def webhook_handler():
+    """Handles updates from Telegram."""
+    update = Update.de_json(request.get_json(force=True), updater.bot)
+    dispatcher.process_update(update)
+    return 'ok', 200
 
-def main() -> None:
-    """Bot ကို Webhook mode ဖြင့် စတင် run ပေးမယ့် Main function"""
-    # ... (Credential check is the same) ...
+@app.route('/download/<token>', methods=['GET'])
+def download_proxy(token):
+    """Handles the secure, one-time download link."""
+    # 1. Validate Token
+    token_data = download_tokens.get(token)
+    if not token_data:
+        return "Download link is invalid or has already been used.", 404
 
-    updater = Updater(BOT_TOKEN)
-    dispatcher = updater.dispatcher
+    # 2. Check Expiry (60 seconds)
+    if time.time() - token_data['timestamp'] > 60:
+        download_tokens.pop(token, None)
+        return "Download link has expired.", 410
+        
+    # 3. Invalidate token immediately (one-time use)
+    download_tokens.pop(token, None)
     
-    # Register all command handlers
-    # ... (Same as before) ...
-    dispatcher.add_handler(CommandHandler("s_album", search_album))
-    dispatcher.add_handler(CommandHandler("s_artist", search_artist))
+    # 4. Get File Info from DB
+    song_id = token_data['song_id']
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT file_id, file_name FROM songs WHERE id = ?", (song_id,))
+    result = cursor.fetchone()
+    conn.close()
+
+    if not result:
+        return "Song not found in database.", 404
+        
+    file_id, file_name = result
     
-    # --- NEW: Register the Callback Query Handler for buttons ---
-    dispatcher.add_handler(CallbackQueryHandler(button_handler))
+    # 5. Get Real Download Link from MS Graph
+    real_download_url = get_download_link(file_id)
+    if not real_download_url:
+        return "Could not fetch download link from cloud storage.", 500
+        
+    # 6. Stream the file to the user
+    req = requests.get(real_download_url, stream=True)
+    return Response(stream_with_context(req.iter_content(chunk_size=1024)), headers={
+        'Content-Disposition': f'attachment; filename="{file_name}"'
+    })
 
-    # Start the bot in webhook mode
-    # ... (Same as before) ...
+@app.route('/')
+def index():
+    return 'Bot is running!', 200
 
-if __name__ == '__main__':
-    main()
+# --- Register all handlers ---
+def register_handlers(dp: Dispatcher):
+    # ... (Register all handlers: start, add_member, ban, unban, s_album, s_artist) ...
+    dp.add_handler(CallbackQueryHandler(button_handler))
+
+# --- Main Setup ---
+# ... (All your functions should be defined before this point) ...
+# ... Make sure to copy all the functions from our previous versions into this file ...
+register_handlers(dispatcher)
+WEBHOOK_SETUP_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}/{BOT_TOKEN}"
+logger.info(f"SET YOUR WEBHOOK MANUALLY (if needed): {WEBHOOK_SETUP_URL}")
