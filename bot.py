@@ -355,14 +355,17 @@ application.add_handler(CommandHandler("s_album", search_album))
 application.add_handler(CommandHandler("s_artist", search_artist))
 application.add_handler(CallbackQueryHandler(button_handler))
 
-# Set webhook
+# Set webhook and initialize application
 WEBHOOK_SETUP_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}/{BOT_TOKEN}"
 logger.info(f"==> SET WEBHOOK (if not set): {WEBHOOK_SETUP_URL}")
 
-# Start the application
+# Initialize and start the application
+async def initialize_application():
+    await application.initialize()
+    await application.start()
+    await application.bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
+
 if __name__ == "__main__":
     import asyncio
-    async def set_webhook():
-        await application.bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
-        await application.run_polling()  # For local testing; remove for production
-    asyncio.run(set_webhook())
+    asyncio.run(initialize_application())
+    app.run(host="0.0.0.0", port=8000)  # For local testing; in production, use gunicorn
