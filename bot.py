@@ -28,7 +28,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Initialize Application instead of Updater
+# Initialize Application
 application = Application.builder().token(BOT_TOKEN).build()
 
 # --- Helper Functions ---
@@ -359,9 +359,10 @@ application.add_handler(CallbackQueryHandler(button_handler))
 WEBHOOK_SETUP_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}/{BOT_TOKEN}"
 logger.info(f"==> SET WEBHOOK (if not set): {WEBHOOK_SETUP_URL}")
 
-# Start the application (handled by Flask in this case)
+# Start the application
 if __name__ == "__main__":
     import asyncio
     async def set_webhook():
         await application.bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
+        await application.run_polling()  # For local testing; remove for production
     asyncio.run(set_webhook())
