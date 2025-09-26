@@ -1,6 +1,6 @@
 msal
 requests
 mutagen
-python-telegram-bot==13.15
+python-telegram-bot>=20.0
 Flask
 gunicorn
