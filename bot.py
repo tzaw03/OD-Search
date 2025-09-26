@@ -6,7 +6,8 @@ import msal
 import uuid
 from datetime import datetime, timedelta
 from flask import Flask, request, Response, stream_with_context, redirect
-from telegram import Update, ParseMode, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ParseMode
 from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler
 
 # --- Configuration ---
