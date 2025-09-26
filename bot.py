@@ -1,4 +1,3 @@
-# bot.py
 import os
 import sqlite3
 import logging
@@ -135,11 +134,9 @@ def join_request(update: Update, context: CallbackContext):
     if is_member(user.id):
         update.message.reply_text("✨ You are already an active member!")
         return
-    user_info = (
-        f"👤 **New Join Request**\n\n"
-        f"**Name:** {user.first_name}\n"
-        f"**Username:** @{user.username}\n" if user.username else ""
-    )
+    user_info = f"👤 **New Join Request**\n\n**Name:** {user.first_name}\n"
+    if user.username:
+        user_info += f"**Username:** @{user.username}\n"
     user_info += f"**User ID:** `{user.id}`\n\nTo approve:\n`/add_member {user.id} 30`"
     context.bot.send_message(chat_id=ADMIN_USER_ID, text=user_info, parse_mode=ParseMode.MARKDOWN)
     update.message.reply_text("✅ Your request has been sent to the admin for approval.")
@@ -260,7 +257,7 @@ def button_handler(update: Update, context: CallbackContext):
         conn.close()
         download_url = f"{WEBHOOK_URL}/download/{token}"
         query.edit_message_text(
-            text=f"✅ Secure link generated!\n\n👉 [Click to download]({download_url})\n\n_Link expires in 30 minutes._",
+            text=f"✅ Secure link generated!\n\n👉 [Click to download]({download_url})\n\n_Link expires in 30 minutes and is one-time use._",
             parse_mode=ParseMode.MARKDOWN
         )
     elif callback_data.startswith("albumdl_"):
@@ -292,11 +289,11 @@ def download_proxy(token):
         conn.close()
         return "Invalid or expired link.", 404
     song_id, created_at = result
-    # expire after 30 minutes
     created_at = datetime.fromisoformat(created_at)
     if datetime.now() - created_at > timedelta(minutes=30):
         conn.close()
         return "Link expired.", 410
+    # delete token immediately (one-time use)
     cursor.execute("DELETE FROM download_tokens WHERE token = ?", (token,))
     conn.commit()
     cursor.execute("SELECT file_id FROM songs WHERE id = ?", (song_id,))
@@ -325,6 +322,7 @@ def download_album_proxy(token):
     if not result:
         conn.close()
         return "Link invalid or used.", 404
+    # delete token immediately (one-time use)
     cursor.execute("DELETE FROM download_tokens WHERE token = ?", (token,))
     conn.commit()
     album_id = result[0]
