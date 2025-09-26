@@ -258,7 +258,8 @@ def button_handler(update: Update, context: CallbackContext):
         download_url = f"{WEBHOOK_URL}/download/{token}"
         query.edit_message_text(
             text=f"✅ Secure link generated!\n\n👉 [Click to download]({download_url})\n\n_Link expires in 30 minutes and is one-time use._",
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.MARKDOWN,
+            disable_web_page_preview=True
         )
     elif callback_data.startswith("albumdl_"):
         album_id = int(callback_data.split("_")[1])
@@ -267,8 +268,9 @@ def button_handler(update: Update, context: CallbackContext):
         conn.close()
         redirect_url = f"{WEBHOOK_URL}/download_album/{token}"
         query.edit_message_text(
-            text=f"✅ Secure album link generated!\n\n👉 [Click to open folder]({redirect_url})\n\n_Link is one-time use._",
-            parse_mode=ParseMode.MARKDOWN
+            text=f"✅ Secure album link generated!\n\n👉 {redirect_url}\n\n_Link is one-time use._",
+            parse_mode=ParseMode.MARKDOWN,
+            disable_web_page_preview=True
         )
 
 # --- Flask Routes ---
