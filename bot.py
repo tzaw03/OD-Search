@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from flask import Flask, request, Response, stream_with_context, redirect
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
-from telegram.ext import Updater, CommandHandler, CallbackContext, CallbackQueryHandler
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler
 
 # --- Configuration ---
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -22,13 +22,14 @@ TARGET_USER_ID = os.getenv("O365_USER_ID")
 
 # --- Initialize ---
 app = Flask(__name__)
-updater = Updater(BOT_TOKEN)
-dispatcher = updater.dispatcher
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# Initialize Application instead of Updater
+application = Application.builder().token(BOT_TOKEN).build()
 
 # --- Helper Functions ---
 def escape_markdown_v2(text: str) -> str:
@@ -115,10 +116,10 @@ def search_songs(criteria: str, search_term: str) -> list:
     return results
 
 # --- Command Handlers ---
-def start(update: Update, context: CallbackContext):
+async def start(update: Update, context):
     user = update.effective_user
     if is_member(user.id):
-        update.message.reply_text(
+        await update.message.reply_text(
             f"👋 Welcome back, {user.first_name}!\n\n"
             "✨ You can search using:\n"
             "`/s_album <album_name>`\n"
@@ -126,29 +127,29 @@ def start(update: Update, context: CallbackContext):
             parse_mode=ParseMode.MARKDOWN_V2
         )
     else:
-        update.message.reply_text(
+        await update.message.reply_text(
             f"🚫 Sorry, {user.first_name}.\n\n"
             "You are not an authorized member. To request access, please use the /join command."
         )
 
-def join_request(update: Update, context: CallbackContext):
+async def join_request(update: Update, context):
     user = update.effective_user
     if is_member(user.id):
-        update.message.reply_text("✨ You are already an active member!")
+        await update.message.reply_text("✨ You are already an active member!")
         return
     user_info = f"👤 **New Join Request**\n\n**Name:** {user.first_name}\n"
     if user.username:
         user_info += f"**Username:** @{user.username}\n"
     user_info += f"**User ID:** `{user.id}`\n\nTo approve:\n`/add_member {user.id} 30`"
-    context.bot.send_message(chat_id=ADMIN_USER_ID, text=user_info, parse_mode=ParseMode.MARKDOWN_V2)
-    update.message.reply_text("✅ Your request has been sent to the admin for approval.")
+    await context.bot.send_message(chat_id=ADMIN_USER_ID, text=user_info, parse_mode=ParseMode.MARKDOWN_V2)
+    await update.message.reply_text("✅ Your request has been sent to the admin for approval.")
 
-def add_member(update: Update, context: CallbackContext):
+async def add_member(update: Update, context):
     admin = update.effective_user
     if admin.id != ADMIN_USER_ID:
         return
     if len(context.args) < 2:
-        update.message.reply_text("Usage: /add_member <user_id> <days>")
+        await update.message.reply_text("Usage: /add_member <user_id> <days>")
         return
     user_id = int(context.args[0])
     days = int(context.args[1])
@@ -161,40 +162,40 @@ def add_member(update: Update, context: CallbackContext):
     )
     conn.commit()
     conn.close()
-    update.message.reply_text(f"✅ User {user_id} added/updated as active member until {expiry_date}")
+    await update.message.reply_text(f"✅ User {user_id} added/updated as active member until {expiry_date}")
 
-def ban_user(update: Update, context: CallbackContext):
+async def ban_user(update: Update, context):
     admin = update.effective_user
     if admin.id != ADMIN_USER_ID:
         return
     if not context.args:
-        update.message.reply_text("Usage: /ban <user_id>")
+        await update.message.reply_text("Usage: /ban <user_id>")
         return
     user_id = int(context.args[0])
     if update_user_status(user_id, "banned"):
-        update.message.reply_text(f"🚫 User {user_id} banned.")
+        await update.message.reply_text(f"🚫 User {user_id} banned.")
     else:
-        update.message.reply_text("❌ User not found.")
+        await update.message.reply_text("❌ User not found.")
 
-def unban_user(update: Update, context: CallbackContext):
+async def unban_user(update: Update, context):
     admin = update.effective_user
     if admin.id != ADMIN_USER_ID:
         return
     if not context.args:
-        update.message.reply_text("Usage: /unban <user_id>")
+        await update.message.reply_text("Usage: /unban <user_id>")
         return
     user_id = int(context.args[0])
     if update_user_status(user_id, "active"):
-        update.message.reply_text(f"✅ User {user_id} unbanned.")
+        await update.message.reply_text(f"✅ User {user_id} unbanned.")
     else:
-        update.message.reply_text("❌ User not found.")
+        await update.message.reply_text("❌ User not found.")
 
-def search_album(update: Update, context: CallbackContext):
+async def search_album(update: Update, context):
     user = update.effective_user
     if not is_member(user.id):
         return
     if not context.args:
-        update.message.reply_text("✍️ Usage: `/s_album <album_name>`")
+        await update.message.reply_text("✍️ Usage: `/s_album <album_name>`")
         return
     search_term = " ".join(context.args)
     conn = sqlite3.connect(DB_FILE)
@@ -203,44 +204,44 @@ def search_album(update: Update, context: CallbackContext):
     results = cursor.fetchall()
     conn.close()
     if not results:
-        update.message.reply_text(f"🤔 No album folders found for: *{search_term}*", parse_mode=ParseMode.MARKDOWN_V2)
+        await update.message.reply_text(f"🤔 No album folders found for: *{search_term}*", parse_mode=ParseMode.MARKDOWN_V2)
     else:
         keyboard = [[InlineKeyboardButton(f"🔗 {album_name}", callback_data=f"albumdl_{album_id}")]
                     for album_id, album_name, artist_name in results[:20]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text(
+        await update.message.reply_text(
             f"💿 *Found {len(results)} album folders for '{search_term}':*",
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=reply_markup
         )
 
-def search_artist(update: Update, context: CallbackContext):
+async def search_artist(update: Update, context):
     user = update.effective_user
     if not is_member(user.id):
         return
     if not context.args:
-        update.message.reply_text("✍️ Usage: `/s_artist <artist_name>`")
+        await update.message.reply_text("✍️ Usage: `/s_artist <artist_name>`")
         return
     search_term = " ".join(context.args)
     results = search_songs("artist", search_term)
     if not results:
-        update.message.reply_text(f"🤔 No results for artist: *{search_term}*", parse_mode=ParseMode.MARKDOWN_V2)
+        await update.message.reply_text(f"🤔 No results for artist: *{search_term}*", parse_mode=ParseMode.MARKDOWN_V2)
     else:
         keyboard = [[InlineKeyboardButton(f"📥 {title}", callback_data=f"dl_{song_id}")]
                     for song_id, artist, album, title in results[:20]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        update.message.reply_text(
+        await update.message.reply_text(
             f"🎤 *Found {len(results)} songs by artist '{search_term}':*",
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=reply_markup
         )
 
-def button_handler(update: Update, context: CallbackContext):
+async def button_handler(update: Update, context):
     query = update.callback_query
-    query.answer()
+    await query.answer()
     user_id = query.from_user.id
     if not is_member(user_id):
-        query.edit_message_text(text="🚫 Membership expired.")
+        await query.edit_message_text(text="🚫 Membership expired.")
         return
     callback_data = query.data
     token = str(uuid.uuid4())
@@ -256,7 +257,7 @@ def button_handler(update: Update, context: CallbackContext):
         logger.info(f"Generated download_url: {download_url}")
         message_text = f"✅ Secure link generated\\!\n\n👉 [Click to download]({escaped_url})\n\n\\_Link expires in 30 minutes and is one-time use\\._"
         logger.info(f"Message text: {message_text}")
-        query.edit_message_text(
+        await query.edit_message_text(
             text=message_text,
             parse_mode=ParseMode.MARKDOWN_V2,
             disable_web_page_preview=True
@@ -271,7 +272,7 @@ def button_handler(update: Update, context: CallbackContext):
         logger.info(f"Generated redirect_url: {redirect_url}")
         message_text = f"✅ Secure album link generated\\!\n\n👉 [{escape_markdown_v2('Click to download')}]({escaped_url})\n\n\\_Link is one-time use\\._"
         logger.info(f"Message text: {message_text}")
-        query.edit_message_text(
+        await query.edit_message_text(
             text=message_text,
             parse_mode=ParseMode.MARKDOWN_V2,
             disable_web_page_preview=True
@@ -279,9 +280,9 @@ def button_handler(update: Update, context: CallbackContext):
 
 # --- Flask Routes ---
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def webhook_handler():
-    update = Update.de_json(request.get_json(force=True), updater.bot)
-    dispatcher.process_update(update)
+async def webhook_handler():
+    update = Update.de_json(request.get_json(force=True), application.bot)
+    await application.process_update(update)
     return "ok", 200
 
 @app.route("/download/<token>", methods=["GET"])
@@ -345,14 +346,22 @@ def index():
     return "Bot is running!", 200
 
 # --- Handlers ---
-dispatcher.add_handler(CommandHandler("start", start))
-dispatcher.add_handler(CommandHandler("join", join_request))
-dispatcher.add_handler(CommandHandler("add_member", add_member))
-dispatcher.add_handler(CommandHandler("ban", ban_user))
-dispatcher.add_handler(CommandHandler("unban", unban_user))
-dispatcher.add_handler(CommandHandler("s_album", search_album))
-dispatcher.add_handler(CommandHandler("s_artist", search_artist))
-dispatcher.add_handler(CallbackQueryHandler(button_handler))
+application.add_handler(CommandHandler("start", start))
+application.add_handler(CommandHandler("join", join_request))
+application.add_handler(CommandHandler("add_member", add_member))
+application.add_handler(CommandHandler("ban", ban_user))
+application.add_handler(CommandHandler("unban", unban_user))
+application.add_handler(CommandHandler("s_album", search_album))
+application.add_handler(CommandHandler("s_artist", search_artist))
+application.add_handler(CallbackQueryHandler(button_handler))
 
+# Set webhook
 WEBHOOK_SETUP_URL = f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook?url={WEBHOOK_URL}/{BOT_TOKEN}"
 logger.info(f"==> SET WEBHOOK (if not set): {WEBHOOK_SETUP_URL}")
+
+# Start the application (handled by Flask in this case)
+if __name__ == "__main__":
+    import asyncio
+    async def set_webhook():
+        await application.bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
+    asyncio.run(set_webhook())
