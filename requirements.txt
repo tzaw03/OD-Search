@@ -2,5 +2,6 @@ msal
 requests
 mutagen
 python-telegram-bot>=20.0
-Flask
+Flask[async] 
 gunicorn
+asgiref
