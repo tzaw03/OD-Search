@@ -30,6 +30,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- Helper Functions ---
+def escape_markdown_v2(text: str) -> str:
+    """Escape special characters for MarkdownV2."""
+    special_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    for char in special_chars:
+        text = text.replace(char, f'\\{char}')
+    return text
+
 def get_access_token():
     authority = f"https://login.microsoftonline.com/{TENANT_ID}"
     scope = ["https://graph.microsoft.com/.default"]
@@ -41,7 +48,6 @@ def get_access_token():
         return result["access_token"]
     logger.error(f"Failed to acquire token: {result.get('error_description')}")
     return None
-
 
 def get_download_link(file_id: str):
     token = get_access_token()
@@ -56,7 +62,6 @@ def get_download_link(file_id: str):
     logger.error(f"Graph API Error getting item: {response.text}")
     return None, None
 
-
 def get_sharing_link(folder_id: str):
     token = get_access_token()
     if not token:
@@ -69,7 +74,6 @@ def get_sharing_link(folder_id: str):
         return response.json().get("link", {}).get("webUrl")
     logger.error(f"Graph API Error creating share link: {response.text}")
     return None
-
 
 def is_member(user_id: int) -> bool:
     conn = sqlite3.connect(DB_FILE)
@@ -87,7 +91,6 @@ def is_member(user_id: int) -> bool:
             return True
     return False
 
-
 def update_user_status(user_id: int, status: str) -> bool:
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -100,7 +103,6 @@ def update_user_status(user_id: int, status: str) -> bool:
         return True
     conn.close()
     return False
-
 
 def search_songs(criteria: str, search_term: str) -> list:
     conn = sqlite3.connect(DB_FILE)
@@ -120,14 +122,13 @@ def start(update: Update, context: CallbackContext):
             "✨ You can search using:\n"
             "`/s_album <album_name>`\n"
             "`/s_artist <artist_name>`",
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.MARKDOWN_V2
         )
     else:
         update.message.reply_text(
             f"🚫 Sorry, {user.first_name}.\n\n"
             "You are not an authorized member. To request access, please use the /join command."
         )
-
 
 def join_request(update: Update, context: CallbackContext):
     user = update.effective_user
@@ -138,9 +139,8 @@ def join_request(update: Update, context: CallbackContext):
     if user.username:
         user_info += f"**Username:** @{user.username}\n"
     user_info += f"**User ID:** `{user.id}`\n\nTo approve:\n`/add_member {user.id} 30`"
-    context.bot.send_message(chat_id=ADMIN_USER_ID, text=user_info, parse_mode=ParseMode.MARKDOWN)
+    context.bot.send_message(chat_id=ADMIN_USER_ID, text=user_info, parse_mode=ParseMode.MARKDOWN_V2)
     update.message.reply_text("✅ Your request has been sent to the admin for approval.")
-
 
 def add_member(update: Update, context: CallbackContext):
     admin = update.effective_user
@@ -162,7 +162,6 @@ def add_member(update: Update, context: CallbackContext):
     conn.close()
     update.message.reply_text(f"✅ User {user_id} added/updated as active member until {expiry_date}")
 
-
 def ban_user(update: Update, context: CallbackContext):
     admin = update.effective_user
     if admin.id != ADMIN_USER_ID:
@@ -176,7 +175,6 @@ def ban_user(update: Update, context: CallbackContext):
     else:
         update.message.reply_text("❌ User not found.")
 
-
 def unban_user(update: Update, context: CallbackContext):
     admin = update.effective_user
     if admin.id != ADMIN_USER_ID:
@@ -189,7 +187,6 @@ def unban_user(update: Update, context: CallbackContext):
         update.message.reply_text(f"✅ User {user_id} unbanned.")
     else:
         update.message.reply_text("❌ User not found.")
-
 
 def search_album(update: Update, context: CallbackContext):
     user = update.effective_user
@@ -205,17 +202,16 @@ def search_album(update: Update, context: CallbackContext):
     results = cursor.fetchall()
     conn.close()
     if not results:
-        update.message.reply_text(f"🤔 No album folders found for: *{search_term}*", parse_mode=ParseMode.MARKDOWN)
+        update.message.reply_text(f"🤔 No album folders found for: *{search_term}*", parse_mode=ParseMode.MARKDOWN_V2)
     else:
         keyboard = [[InlineKeyboardButton(f"🔗 {album_name}", callback_data=f"albumdl_{album_id}")]
                     for album_id, album_name, artist_name in results[:20]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         update.message.reply_text(
             f"💿 *Found {len(results)} album folders for '{search_term}':*",
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=reply_markup
         )
-
 
 def search_artist(update: Update, context: CallbackContext):
     user = update.effective_user
@@ -227,17 +223,16 @@ def search_artist(update: Update, context: CallbackContext):
     search_term = " ".join(context.args)
     results = search_songs("artist", search_term)
     if not results:
-        update.message.reply_text(f"🤔 No results for artist: *{search_term}*", parse_mode=ParseMode.MARKDOWN)
+        update.message.reply_text(f"🤔 No results for artist: *{search_term}*", parse_mode=ParseMode.MARKDOWN_V2)
     else:
         keyboard = [[InlineKeyboardButton(f"📥 {title}", callback_data=f"dl_{song_id}")]
                     for song_id, artist, album, title in results[:20]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         update.message.reply_text(
             f"🎤 *Found {len(results)} songs by artist '{search_term}':*",
-            parse_mode=ParseMode.MARKDOWN,
+            parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=reply_markup
         )
-
 
 def button_handler(update: Update, context: CallbackContext):
     query = update.callback_query
@@ -256,9 +251,13 @@ def button_handler(update: Update, context: CallbackContext):
         conn.commit()
         conn.close()
         download_url = f"{WEBHOOK_URL}/download/{token}"
+        escaped_url = escape_markdown_v2(download_url)
+        logger.info(f"Generated download_url: {download_url}")
+        message_text = f"✅ Secure link generated\\!\n\n👉 [Click to download]({escaped_url})\n\n\\_Link expires in 30 minutes and is one-time use\\._"
+        logger.info(f"Message text: {message_text}")
         query.edit_message_text(
-            text=f"✅ Secure link generated!\n\n👉 [Click to download]({download_url})\n\n_Link expires in 30 minutes and is one-time use._",
-            parse_mode=ParseMode.MARKDOWN,
+            text=message_text,
+            parse_mode=ParseMode.MARKDOWN_V2,
             disable_web_page_preview=True
         )
     elif callback_data.startswith("albumdl_"):
@@ -267,9 +266,13 @@ def button_handler(update: Update, context: CallbackContext):
         conn.commit()
         conn.close()
         redirect_url = f"{WEBHOOK_URL}/download_album/{token}"
+        escaped_url = escape_markdown_v2(redirect_url)
+        logger.info(f"Generated redirect_url: {redirect_url}")
+        message_text = f"✅ Secure album link generated\\!\n\n👉 [{escape_markdown_v2('Click to download')}]({escaped_url})\n\n\\_Link is one-time use\\._"
+        logger.info(f"Message text: {message_text}")
         query.edit_message_text(
-            text=f"✅ Secure album link generated!\n\n👉 {redirect_url}\n\n_Link is one-time use._",
-            parse_mode=ParseMode.MARKDOWN,
+            text=message_text,
+            parse_mode=ParseMode.MARKDOWN_V2,
             disable_web_page_preview=True
         )
 
@@ -279,7 +282,6 @@ def webhook_handler():
     update = Update.de_json(request.get_json(force=True), updater.bot)
     dispatcher.process_update(update)
     return "ok", 200
-
 
 @app.route("/download/<token>", methods=["GET"])
 def download_proxy(token):
@@ -314,7 +316,6 @@ def download_proxy(token):
                     yield chunk
     return Response(stream_with_context(generate()), headers={"Content-Disposition": f"attachment; filename={file_name}"})
 
-
 @app.route("/download_album/<token>", methods=["GET"])
 def download_album_proxy(token):
     conn = sqlite3.connect(DB_FILE)
@@ -337,7 +338,6 @@ def download_album_proxy(token):
     if not real_sharing_link:
         return "Could not create a sharing link.", 500
     return redirect(real_sharing_link, code=302)
-
 
 @app.route("/")
 def index():
